@@ -1,5 +1,5 @@
 /**
- * AI Process Unit — scroll-driven CAD scene.
+ * AUXO V — scroll-driven CAD scene.
  *
  * Physically-based / realistic render setup (after the Three.js Journey
  * "Realistic render" lesson): ACES filmic tone mapping + tuned exposure,
@@ -8,7 +8,7 @@
  * cleaned up with shadow.normalBias (kills acne on the rounded geometry).
  *
  * Three scroll states across the pinned 3×100vh section:
- *   01 normal position  →  02 zoom into geometry  →  03 zoom + rear-side spin
+ *   01 normal position  →  02 zoom into vessel geometry  →  03 rear-side rotation
  *
  * Externalised from index.html for readability; still build-less — resolved
  * through the page's <script type="importmap"> and served over HTTP.
@@ -182,7 +182,8 @@ if (cadStage && cadCanvas) {
   // High threshold keeps the (much dimmer) lit body out of the bloom.
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.32, 1.15);
+  // Bloom disabled — the CAD model is shown without any glow effect.
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.0, 0.32, 1.15);
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
 
@@ -213,29 +214,28 @@ if (cadStage && cadCanvas) {
       material.roughness = THREE.MathUtils.clamp(material.roughness, 0.35, 0.92);
     }
 
-    // Drive the blue LED strip bright enough to bloom → a soft glow.
-    const col = material.color;
-    const emi = material.emissive;
-    const alreadyEmissive = emi && emi.r + emi.g + emi.b > 0.05;
-    const looksLikeLed =
-      col && col.b > 0.22 && col.b >= col.r && col.b >= col.g && col.b - col.r > 0.08;
-    if (alreadyEmissive || looksLikeLed) {
-      if (!alreadyEmissive) material.emissive = col.clone(); // keep the GLB's own emissive tint when present
-      material.emissiveIntensity = 6.0;
-      material.toneMapped = true;
+    // No emissive glow: the LED strip is left as a plain lit surface (per design,
+    // the CAD model carries no glow/accent effect).
+    if (material.emissive && "emissiveIntensity" in material) {
+      material.emissiveIntensity = 0;
     }
 
     material.needsUpdate = true;
   };
 
   const normalizeModel = (model) => {
-    const bounds = new THREE.Box3().setFromObject(model);
-    const size = bounds.getSize(new THREE.Vector3());
-    const center = bounds.getCenter(new THREE.Vector3());
+    // Scale to a common size FIRST, then recenter from the post-scale bounds.
+    // Subtracting an unscaled center before scaling leaves off-origin models
+    // (like the tall AUXO tower, whose geometry sits well above its own origin)
+    // translated far outside the camera frame.
+    const preBounds = new THREE.Box3().setFromObject(model);
+    const size = preBounds.getSize(new THREE.Vector3());
     const maxDimension = Math.max(size.x, size.y, size.z) || 1;
-
-    model.position.sub(center);
     model.scale.setScalar(1.4 / maxDimension);
+
+    const scaledBounds = new THREE.Box3().setFromObject(model);
+    const center = scaledBounds.getCenter(new THREE.Vector3());
+    model.position.sub(center);
     model.traverse((child) => {
       if (!child.isMesh) return;
       child.castShadow = true;
@@ -297,7 +297,7 @@ if (cadStage && cadCanvas) {
   renderCad();
 
   new GLTFLoader().load(
-    "../assets/cad-model/threeJS.model.glb",
+    "assets/models/AUXO.glb",
     (gltf) => {
       loadedModel = normalizeModel(gltf.scene);
       spinRig.add(loadedModel);
